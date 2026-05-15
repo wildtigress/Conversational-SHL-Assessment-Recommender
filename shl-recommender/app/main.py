@@ -114,6 +114,19 @@ class ChatResponse(BaseModel):
 
 # ── endpoints ─────────────────────────────────────────────────────────────────
 
+@app.get("/")
+def root():
+    """Root endpoint — confirms the service is running."""
+    return {
+        "service": "SHL Assessment Recommender",
+        "status": "running",
+        "endpoints": {
+            "health": "GET /health",
+            "chat": "POST /chat",
+        },
+    }
+
+
 @app.get("/health")
 def health():
     """Readiness check. Returns HTTP 200 when the service is up."""
