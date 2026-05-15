@@ -10,6 +10,7 @@ only built/loaded once at startup — never on every request.
 
 import json
 import os
+import threading
 import numpy as np
 
 _index       = None   # FAISS index
@@ -123,17 +124,21 @@ def _build_index(catalog: list[dict]):
     return index, embeddings
 
 
+_init_lock = threading.Lock()   # prevents race between background thread and first request
+
+
 def initialise():
     """
     Call once at startup to load catalog + build index.
-    Subsequent calls are no-ops (idempotent).
+    Thread-safe: uses a lock so background init and first /chat don't collide.
     """
     global _index, _catalog, _embeddings
-    if _index is not None:
-        return   # already initialised
+    with _init_lock:
+        if _index is not None:
+            return   # already initialised
 
-    _catalog    = _load_catalog()
-    _index, _embeddings = _build_index(_catalog)
+        _catalog    = _load_catalog()
+        _index, _embeddings = _build_index(_catalog)
 
 
 def _keyword_boost(query: str, items: list[dict], boost: float = 0.15) -> list[dict]:
@@ -297,7 +302,6 @@ def get_catalog_summary() -> str:
     )
 
 
-# ── eager startup initialisation ─────────────────────────────────────────────
-# Called at import time so the index is ready before the first /chat request.
-# This prevents cold-start timeouts on the first API call.
-initialise()
+# NOTE: initialise() is called lazily by search() or by the background
+# thread in main.py lifespan. Do NOT call it eagerly here — it blocks
+# for ~3 minutes and prevents Render from detecting the open port.

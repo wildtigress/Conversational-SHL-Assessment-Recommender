@@ -16,6 +16,7 @@ Then test with:
 """
 
 import os
+import threading
 from contextlib import asynccontextmanager
 from typing import Literal
 
@@ -32,18 +33,22 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Runs at startup. Pre-initialises the embedding model and FAISS index
-    so the first /chat request doesn't timeout.
+    Runs at startup. Kicks off index initialisation in a background thread
+    so the port opens IMMEDIATELY — critical for Render's port scanner.
+    The first /chat request will wait if init hasn't finished yet.
     """
-    print("[startup] Initialising retrieval index…")
-    try:
-        from app.retrieval import initialise
-        initialise()
-        print("[startup] Ready.")
-    except Exception as e:
-        print(f"[startup] WARNING: Could not initialise retrieval: {e}")
-        print("[startup] Server will still start; retrieval will initialise on first request.")
-    yield   # server runs here
+    def _bg_init():
+        try:
+            from app.retrieval import initialise
+            initialise()
+            print("[startup] Ready.")
+        except Exception as e:
+            print(f"[startup] WARNING: Could not initialise retrieval: {e}")
+
+    print("[startup] Starting background initialisation…")
+    t = threading.Thread(target=_bg_init, daemon=True)
+    t.start()
+    yield   # server starts and port opens immediately
     print("[shutdown] Bye.")
 
 
